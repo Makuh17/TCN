@@ -1,3 +1,13 @@
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# Local History for Visual Studio Code
+.history/
+
 .DS_Store/
 lambada/
 wikitext-103/
@@ -5,3 +15,4 @@ wikitext-103/
 *.log
 *.pyc
 __pycache__/
+
