@@ -1,0 +1,1 @@
+This is not downsampled. Trained for 32 epochs. The sequence overlap is 50%. Notice that all imu measurements were included.

@@ -1,0 +1,2 @@
+epoch, train_loss, test_loss, 1_precision, 1_recall, 1_f1-score, 2_precision, 2_recall, 2_f1-score, accuracytrain_accuracy
+1,0.7477832576807808, 0.7019438743591309, 0.5025380710659898, 1.0, 0.6689189189189189, 0.0, 0.0, 0.0, 0.5025380710659898,0.5478424015009381

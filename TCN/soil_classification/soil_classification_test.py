@@ -23,7 +23,7 @@ parser.add_argument('--dropout', type=float, default=0.0,
                     help='dropout applied to layers (default: 0.0)')
 parser.add_argument('--clip', type=float, default=-1,
                     help='gradient clip, -1 means no clip (default: -1)')
-parser.add_argument('--epochs', type=int, default=10,
+parser.add_argument('--epochs', type=int, default=16,
                     help='upper epoch limit (default: 10)')
 parser.add_argument('--ksize', type=int, default=7,
                     help='kernel size (default: 7)')
@@ -87,7 +87,7 @@ clip = args.clip
 log_interval = args.log_interval
 
 
-data_folder = "/home/mads/git/TCN/TCN/soil_classification/data/prelim"
+data_folder = "/home/mads/git/TCN/TCN/soil_classification/data/prelim_downsample"
 
 #updated until here
 #TODO:
@@ -155,28 +155,53 @@ def get_shuffled_train_test(X,Y, test_pct = 15, normalize = True, seed = 1111):
     return X_train, Y_train, X_test, Y_test
 
 
-
 if __name__ == "__main__":
     # Define tests
-    sequence_length = [50, 100, 250, 500, 750]
+    sequence_length = [10,25]#[50, 100, 250, 500]
     # [All, IMU, Torques]
-    variable_set = [range(LIN_ACC_X,PITCH+1,1), range(LIN_ACC_X,ANG_VEL_Z+1,1),range(BOOM,PITCH+1,1)]
-    variable_set_name = ["all", "imu_no_ori", "torques"]
+    #variable_set = [range(LIN_ACC_X,PITCH+1,1),list(range(POS_X, ANG+1)) + list(range(ORIENT_X,ORIENT_W+1)), range(ORIENT_X,ORIENT_W+1), range(LIN_ACC_X,ANG_VEL_Z+1,1),range(BOOM,PITCH+1,1)]
+    #variable_set_name = ["all", "orient+pose","imu_no_orient", "torques"]
+    variable_set = [range(LIN_ACC_X,ANG_VEL_Z+1,1),range(BOOM,PITCH+1,1)]
+    variable_set_name = ["imu_no_orient", "torques"]
     # Include the slightly troublesome air-class?
     air_class = [True, False]
     for seq_len in sequence_length:
         for val_mask, val_mask_name in zip(variable_set, variable_set_name):
             for air in air_class:
                 # for now we just use 50% overlap
-                overlap = int(seq_length/2)
+                overlap = int(seq_len / 2)
+                print(overlap)
                 input_channels = len(val_mask)
                 n_classes = 3
                 print("Producing data...")
-                X, Y = data_generator(data_folder, seq_length, overlap, val_mask=val_mask)
+                #X_, Y = data_generator(data_folder, seq_len, overlap, val_mask=val_mask)
+                train_folder = "/home/mads/git/TCN/TCN/soil_classification/data/prelim_downsample_train"
+                test_folder = "/home/mads/git/TCN/TCN/soil_classification/data/prelim_downsample_test"
+                X_train, Y_train = data_generator(train_folder, seq_len, overlap, val_mask=val_mask)
+                X_test, Y_test = data_generator(test_folder, seq_len, overlap, val_mask=val_mask)
                 if not air:
-                    remove_air = Y>0
-                    X, Y = X[remove_air], Y[remove_air]
-                X_train, Y_train, X_test, Y_test = get_shuffled_train_test(X,Y, test_pct=15, normalize=args.normalize, seed = args.seed)
+                    #remove_air = Y>0
+                    #X, Y = X[remove_air], Y[remove_air]
+                    remove_air = Y_train>0
+                    X_train, Y_train = X_train[remove_air], Y_train[remove_air]
+                    remove_air = Y_test>0
+                    X_test, Y_test= X_test[remove_air], Y_test[remove_air]
+
+                shuffle_seq = np.arange(X_train.shape[0])
+                rng.shuffle(shuffle_seq)
+                X_train = X_train[shuffle_seq,:,:]
+                Y_train = Y_train[shuffle_seq]
+                X_train,Y_train = Variable(torch.from_numpy(X_train)), Variable(torch.from_numpy(Y_train))
+                X_test,Y_test = Variable(torch.from_numpy(X_test)), Variable(torch.from_numpy(Y_test))
+
+                mins, _ = torch.min(torch.min(X_train,1)[0],0)
+                maxs, _ = torch.max(torch.max(X_train,1)[0],0)
+                X_train, X_test = (X_train-mins)/(maxs-mins), (X_test-mins)/(maxs-mins)
+                X_train, X_test = X_train.permute(0,2,1), X_test.permute(0,2,1)
+
+                print(X_train.size(), X_test.size())
+#.....................................................................................................
+                #X_train, Y_train, X_test, Y_test = get_shuffled_train_test(X,Y, test_pct=15, normalize=args.normalize, seed = args.seed)
 
                 #Note on levels: n = ceil(log_2((seq_length-1)*(2-1)/((kernel_size-1)*2)+1)
                 # from https://medium.com/unit8-machine-learning-publication/temporal-convolutional-networks-and-forecasting-5ce1b6e97ce4
@@ -199,17 +224,20 @@ if __name__ == "__main__":
                 train_loss = []
                 test_loss = []
                 test_reports = []
+                train_reports = []
                 model_name = "seq"+str(seq_len)+"_"+val_mask_name+"_air"+str(air)
-                model_folder = "models/"+model_name
+                model_folder = "models_3/"+model_name
                 Path(model_folder).mkdir(parents=True, exist_ok=True)
                 for ep in range(1, epochs+1):
                     train_loss.append(train(ep, X_train, Y_train))
                     #train_losses.append(train_loss)
                     test_loss_, test_report = evaluate(X_test, Y_test)
+                    _, train_report = evaluate(X_train, Y_train)
                     test_loss.append(test_loss_)
                     test_reports.append(test_report)
+                    train_reports.append(train_report)
                     # Save
-                    torch.save(model.state_dict(), model_folder+"/"+model_name+"_eptt"+str(ep)+".pt")
+                    torch.save(model.state_dict(), model_folder+"/"+model_name+"_ep"+str(ep)+".pt")
                 FORMAT = '%Y-%m-%-d_%H%M%S'
                 stamp = datetime.now().strftime(FORMAT)
                 l = []
@@ -217,12 +245,12 @@ if __name__ == "__main__":
                     for key2 in list(test_report.get(key).keys())[:-1]:
                         l.append(key+"_"+key2)
                 l.append("accuracy")        
-                with open('log/train_test_'+model_name+stamp+'.csv', 'w') as f:
-                    f.write(f"epoch, train_loss, test_loss, "+', '.join(l)+"\n")
-                    for loss in enumerate(zip(train_loss, test_loss, test_reports)):
+                with open('log/grid_test_10/train_test_'+model_name+stamp+'.csv', 'w') as f:
+                    f.write(f"epoch, train_loss, test_loss, "+', '.join(l)+", train_accuracy"+"\n")
+                    for loss in enumerate(zip(train_loss, test_loss, test_reports, train_reports)):
                         l = []
                         for key in list(loss[1][2].keys())[:-3]:
                             for key2 in list(loss[1][2].get(key).keys())[:-1]:
                                 l.append(f"{loss[1][2].get(key).get(key2)}") 
                         l.append(f"{loss[1][2].get('accuracy')}")
-                        f.write(f"{loss[0]+1},{loss[1][0]}, {loss[1][1]}, "+', '.join(l)+"\n")
+                        f.write(f"{loss[0]+1},{loss[1][0]}, {loss[1][1]}, "+', '.join(l)+f",{loss[1][3].get('accuracy')}"+"\n")
